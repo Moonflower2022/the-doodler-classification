@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, ConcatDataset
 from quickdraw import QuickDrawDataGroup
 import random
 from PIL import Image
@@ -47,21 +47,20 @@ def load_quickdraw_data(classes_file_name, num_drawings, train_test_ratio):
 
     raw = [QuickDrawDataGroup(category, max_drawings=num_drawings) for category in categories]
 
+    train_datasets = []
+    test_datasets = []
+
     for i, data_group in enumerate(raw):
         drawings = list(data_group.drawings)
         random.shuffle(drawings)
 
         cutoff = int(train_test_ratio * len(drawings))
 
-        dataset_train = QuickDrawDataset(drawings[:cutoff], cutoff, label=i)
-        dataset_test = QuickDrawDataset(drawings[cutoff:], num_drawings - cutoff, label=i)
+        train_datasets.append(QuickDrawDataset(drawings[:cutoff], cutoff, label=i))
+        test_datasets.append(QuickDrawDataset(drawings[cutoff:], len(drawings) - cutoff, label=i))
 
-        if i == 0:
-            combined_dataset_train = dataset_train
-            combined_dataset_test = dataset_test
-        else:
-            combined_dataset_train += dataset_train
-            combined_dataset_test += dataset_test
+    combined_dataset_train = ConcatDataset(train_datasets)
+    combined_dataset_test = ConcatDataset(test_datasets)
 
     return num_classes, categories, combined_dataset_train, combined_dataset_test
 
