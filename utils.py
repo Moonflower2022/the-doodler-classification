@@ -5,6 +5,19 @@ from quickdraw import QuickDrawDataGroup
 import random
 from PIL import Image
 import matplotlib.pyplot as plt
+import os
+
+def get_available_folder_name(base_name, directory="."):
+    # Start checking from the original folder name
+    available_name = base_name
+    counter = 1
+    
+    # Keep incrementing the counter and checking for folder existence
+    while os.path.exists(os.path.join(directory, available_name)):
+        available_name = f"{base_name}_{counter}"
+        counter += 1
+    
+    return available_name
 
 class QuickDrawDataset(Dataset):
     def __init__(self, drawings, drawing_count, label):
@@ -39,13 +52,13 @@ class QuickDrawDataset(Dataset):
         # Return the image tensor and the label
         return img_tensor, self.label
     
-def load_quickdraw_data(classes_file_name, num_drawings, train_test_ratio):
+def load_quickdraw_data(classes_file_name, num_drawings, train_test_ratio, recognized=None):
     with open(f"categories/{classes_file_name}", "r") as file:
         categories = file.read().split("\n")
 
     num_classes = len(categories)
 
-    raw = [QuickDrawDataGroup(category, max_drawings=num_drawings) for category in categories]
+    raw = [QuickDrawDataGroup(category, recognized=recognized, max_drawings=num_drawings) for category in categories]
 
     train_datasets = []
     test_datasets = []

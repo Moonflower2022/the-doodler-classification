@@ -163,3 +163,4 @@ cython_debug/
 
 .quickdrawcache
 models
+temp_models
