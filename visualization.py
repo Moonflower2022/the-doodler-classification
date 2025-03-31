@@ -10,5 +10,4 @@ def get_and_show_drawings(category, num_drawings):
 
 if __name__ == "__main__":
     # Example usage: get 5 cat drawings
-    get_and_show_drawings('duck', 5)
-    get_and_show_drawings('bird', 5)
+    get_and_show_drawings('apple', 5)
