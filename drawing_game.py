@@ -10,6 +10,8 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from PIL import Image, ImageDraw
 import os
 import sys
+import time
+import platform
 
 # Import your custom modules
 from model_classes import GPTConvolutionalNetwork as ModelClass
@@ -23,7 +25,7 @@ class DrawingApp:
         self.classes = classes
         
         # Configure main window
-        self.root.geometry("900x600")
+        self.root.geometry("1100x700")  # Increased window size
         self.root.config(bg="#f0f0f0")
         
         # Create main frames
@@ -37,10 +39,10 @@ class DrawingApp:
         self.canvas_frame = tk.Frame(self.left_frame, bg="white", bd=2, relief=tk.SUNKEN)
         self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Fixed square canvas
-        self.canvas_size = 400  # Square size in pixels
+        # Increased square canvas size
+        self.canvas_size = 600  # Increased from 400 to 600
         self.canvas = tk.Canvas(self.canvas_frame, width=self.canvas_size, height=self.canvas_size, 
-                               bg="white", cursor="cross")  # Changed background to white
+                               bg="white", cursor="cross")
         self.canvas.pack(padx=10, pady=10)
         
         # Initialize drawing variables
@@ -51,19 +53,33 @@ class DrawingApp:
         self.button_frame.pack(fill=tk.X, padx=5, pady=5)
         
         # Clear button
-        self.clear_button = ttk.Button(self.button_frame, text="Clear", command=self.clear_canvas)
+        self.clear_button = ttk.Button(self.button_frame, text="Clear (c)", command=self.clear_canvas)
         self.clear_button.pack(side=tk.LEFT, padx=5, pady=5)
         
+        # Undo button
+        self.undo_button = ttk.Button(self.button_frame, text="Undo (z)", command=self.undo_last_stroke)
+        self.undo_button.pack(side=tk.LEFT, padx=5, pady=5)
+        
         # Classify button
-        self.classify_button = ttk.Button(self.button_frame, text="Classify", command=self.classify_drawing)
+        self.classify_button = ttk.Button(self.button_frame, text="Classify (space)", command=self.classify_drawing)
         self.classify_button.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        # Auto-classify toggle
+        self.auto_classify_var = tk.BooleanVar(value=True)  # Enable by default
+        self.auto_classify_check = ttk.Checkbutton(
+            self.button_frame, 
+            text="Auto-classify", 
+            variable=self.auto_classify_var,
+            command=self.toggle_auto_classify
+        )
+        self.auto_classify_check.pack(side=tk.LEFT, padx=5, pady=5)
         
         # Line width options
         self.line_width_label = tk.Label(self.button_frame, text="Line Width:", bg="#f0f0f0")
         self.line_width_label.pack(side=tk.LEFT, padx=(20, 5))
         
-        self.line_width_var = tk.IntVar(value=3)  # Default thinner line
-        self.line_width_slider = ttk.Scale(self.button_frame, from_=1, to=10, 
+        self.line_width_var = tk.IntVar(value=5)  # Increased default line width
+        self.line_width_slider = ttk.Scale(self.button_frame, from_=1, to=15,  # Increased max width
                                           variable=self.line_width_var, orient="horizontal",
                                           length=100, command=self.update_line_width)
         self.line_width_slider.pack(side=tk.LEFT, padx=5)
@@ -74,7 +90,7 @@ class DrawingApp:
         self.results_label.pack(pady=10)
         
         # Create figure for bar chart
-        self.fig, self.ax = plt.subplots(figsize=(4, 6))
+        self.fig, self.ax = plt.subplots(figsize=(5, 7))  # Increased figure size
         self.canvas_plot = FigureCanvasTkAgg(self.fig, master=self.right_frame)
         self.canvas_plot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
@@ -85,11 +101,30 @@ class DrawingApp:
         self.preview_canvas = tk.Canvas(self.right_frame, width=140, height=140, bg="white", bd=1, relief=tk.SUNKEN)
         self.preview_canvas.pack(pady=5)
         
-        # Status bar
-        self.status_var = tk.StringVar()
-        self.status_var.set("Draw something and click 'Classify'")
-        self.status_bar = tk.Label(root, textvariable=self.status_var, bd=1, relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        # Stroke history for undo functionality
+        self.stroke_history = []
+        self.current_stroke = []
+        
+        # Auto-classification variables
+        self.auto_classify_enabled = True
+        self.last_classify_time = 0
+        self.classify_interval = 500  # 500ms = 0.5s
+        self.pending_classification = False
+        
+        # Set up keyboard shortcuts
+        self.setup_keyboard_shortcuts()
+        
+        # Start auto-classification timer
+        self.schedule_auto_classification()
+        
+    def setup_keyboard_shortcuts(self):        
+        # Bind keyboard shortcuts
+        self.root.bind("<space>", lambda event: self.classify_drawing())  # space for classify
+        self.root.bind(f"<z>", lambda event: self.undo_last_stroke())  # z for undo
+        self.root.bind(f"<c>", lambda event: self.clear_canvas())  # c for clear
+        
+        # Keep focus on the main window for keyboard events
+        self.root.focus_set()
         
     def update_line_width(self, event=None):
         self.line_width = self.line_width_var.get()
@@ -97,7 +132,7 @@ class DrawingApp:
     def setup_drawing(self):
         self.old_x = None
         self.old_y = None
-        self.line_width = 3  # Start with a thinner line
+        self.line_width = 5  # Increased default line width
         # Create new drawing image based on canvas size
         self.draw_image = Image.new("L", (self.canvas_size, self.canvas_size), 255)  # White background
         self.draw = ImageDraw.Draw(self.draw_image)
@@ -107,35 +142,153 @@ class DrawingApp:
         self.canvas.bind("<B1-Motion>", self.draw_line)
         self.canvas.bind("<ButtonRelease-1>", self.end_draw)
         
+        # We're not tracking mouse movement for activity anymore
+        # Only drawing actions will reset the inactivity timer
+        
     def start_draw(self, event):
         self.old_x = event.x
         self.old_y = event.y
+        self.current_stroke = []  # Start a new stroke
         
-    def draw_line(self, event):
+        # Draw a single dot if just clicked (not dragged)
+        # Create a small circle on the canvas
+        dot_radius = self.line_width / 2
+        x, y = event.x, event.y
+        
+        oval_id = self.canvas.create_oval(
+            x - dot_radius, y - dot_radius, 
+            x + dot_radius, y + dot_radius, 
+            fill="black", outline="black",
+            tags="drawing"
+        )
+        
+        # Store the dot in the current stroke
+        self.current_stroke.append({
+            'line_id': oval_id,
+            'points': (x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius),
+            'width': self.line_width,
+            'type': 'dot'
+        })
+        
+        # Draw on the PIL image too
+        self.draw.ellipse([x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius], fill=0)
+        
+        # Flag for auto-classification
+        self.pending_classification = True
+        
+    def draw_line(self, event):        
         if self.old_x and self.old_y:
-            self.canvas.create_line(self.old_x, self.old_y, event.x, event.y, 
-                                  width=self.line_width, fill="black",  # Changed to black
-                                  capstyle=tk.ROUND, smooth=tk.TRUE)
+            # Create line on the canvas
+            line_id = self.canvas.create_line(
+                self.old_x, self.old_y, event.x, event.y, 
+                width=self.line_width, fill="black",
+                capstyle=tk.ROUND, smooth=tk.TRUE,
+                tags="drawing"
+            )
+            
+            # Store the line in the current stroke
+            self.current_stroke.append({
+                'line_id': line_id,
+                'points': (self.old_x, self.old_y, event.x, event.y),
+                'width': self.line_width,
+                'type': 'line'
+            })
             
             # Draw on the PIL image too
             self.draw.line([self.old_x, self.old_y, event.x, event.y], 
                           fill=0, width=self.line_width)  # 0 is black in "L" mode
             
+            # Flag for auto-classification
+            self.pending_classification = True
+            
         self.old_x = event.x
         self.old_y = event.y
         
     def end_draw(self, event):
+        if self.current_stroke:  # Only add if not empty
+            # Add current stroke to history
+            self.stroke_history.append(self.current_stroke)
+            self.current_stroke = []  # Reset current stroke
+            
         self.old_x = None
         self.old_y = None
         
+        # Force an immediate classification when the user stops drawing
+        if self.auto_classify_enabled:
+            self.classify_drawing()
+            
+        # Make sure the main window has focus for keyboard shortcuts
+        self.root.focus_set()
+        
+    def undo_last_stroke(self):
+        if self.stroke_history:
+            # Get the last stroke
+            last_stroke = self.stroke_history.pop()
+            
+            # Remove all lines in the stroke from the canvas
+            for element in last_stroke:
+                self.canvas.delete(element['line_id'])
+            
+            # Redraw the image from scratch (not efficient but simple)
+            self.redraw_from_history()
+            
+            # Update status
+            self.status_var.set("Last stroke undone")
+            
+            # Trigger classification after undo
+            self.pending_classification = True
+    
+    def redraw_from_history(self):
+        # Clear the PIL image
+        self.draw_image = Image.new("L", (self.canvas_size, self.canvas_size), 255)
+        self.draw = ImageDraw.Draw(self.draw_image)
+        
+        # Redraw all strokes from history
+        for stroke in self.stroke_history:
+            for element in stroke:
+                element_type = element.get('type', 'line')  # Default to line for backward compatibility
+                
+                if element_type == 'line':
+                    x0, y0, x1, y1 = element['points']
+                    width = element['width']
+                    self.draw.line([x0, y0, x1, y1], fill=0, width=width)
+                elif element_type == 'dot':
+                    x0, y0, x1, y1 = element['points']
+                    self.draw.ellipse([x0, y0, x1, y1], fill=0)
+                
     def clear_canvas(self):
-        self.canvas.delete("all")
+        self.canvas.delete("drawing")
         self.draw_image = Image.new("L", (self.canvas_size, self.canvas_size), 255)  # White background
         self.draw = ImageDraw.Draw(self.draw_image)
         self.ax.clear()
         self.canvas_plot.draw()
         self.preview_canvas.delete("all")
+        self.stroke_history = []  # Clear the stroke history
         self.status_var.set("Canvas cleared")
+        
+        # Show the prompt text
+        self.prompt_label.config(text="Feel free to draw above!")
+        self.inactivity_prompt_visible = True
+        
+    def toggle_auto_classify(self):
+        self.auto_classify_enabled = self.auto_classify_var.get()
+        status = "enabled" if self.auto_classify_enabled else "disabled"
+        self.status_var.set(f"Auto-classification {status}")
+        
+    def schedule_auto_classification(self):
+        """Schedule the next auto-classification check"""
+        if self.auto_classify_enabled and self.pending_classification:
+            current_time = int(time.time() * 1000)  # Current time in milliseconds
+            time_since_last = current_time - self.last_classify_time
+            
+            if time_since_last >= self.classify_interval:
+                # Time to classify
+                self.classify_drawing()
+                self.pending_classification = False
+                self.last_classify_time = current_time
+                
+        # Schedule the next check
+        self.root.after(100, self.schedule_auto_classification)  # Check every 100ms
         
     def preprocess_image(self):
         """
@@ -183,16 +336,10 @@ class DrawingApp:
                     self.preview_canvas.create_rectangle(x0, y0, x1, y1, fill=color, outline="")
         
     def classify_drawing(self):
-        # Update status
-        self.status_var.set("Classifying...")
-        self.root.update()
-        
-        # Check if canvas is empty
-        img_array = np.array(self.draw_image)
-        if np.all(img_array == 255):  # All white means empty
-            self.status_var.set("Please draw something first!")
+        # Only classify if there's something on the canvas
+        if np.array(self.draw_image).mean() == 255:  # If image is all white
             return
-        
+            
         # Preprocess the image
         img_tensor = self.preprocess_image()
         
@@ -219,9 +366,6 @@ class DrawingApp:
             # Display results
             self.display_results(top_classes, top_probs)
             
-            # Update status
-            self.status_var.set(f"Top prediction: {top_classes[0]} ({top_probs[0]*100:.2f}%)")
-            
         except Exception as e:
             self.status_var.set(f"Error: {str(e)}")
             import traceback
@@ -247,6 +391,11 @@ class DrawingApp:
         # Adjust layout and redraw
         self.fig.tight_layout()
         self.canvas_plot.draw()
+        
+        # Update status with top prediction
+        top_class = classes[0].capitalize()
+        top_prob = probabilities[0] * 100
+        self.status_var.set(f"Top prediction: {top_class} ({top_prob:.1f}%)")
 
 def load_model(model_path):
     """Load the trained model."""
