@@ -1,4 +1,4 @@
-# The Doodler
+# The Doodler (vision for a game)
 
 ## Modes
 
