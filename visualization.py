@@ -1,4 +1,5 @@
 from quickdraw import QuickDrawDataGroup
+import sys
 
 def get_and_show_drawings(category, num_drawings):
     data_group = QuickDrawDataGroup(category, recognized=True, max_drawings=num_drawings)
@@ -10,4 +11,4 @@ def get_and_show_drawings(category, num_drawings):
 
 if __name__ == "__main__":
     # Example usage: get 5 cat drawings
-    get_and_show_drawings('apple', 5)
+    get_and_show_drawings('giraffe' if len(sys.argv) < 2 else sys.argv[1], 5)
